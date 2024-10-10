@@ -2,8 +2,11 @@
 
 ## FCGHUNTER
 
-
+attack samples:
 https://drive.google.com/file/d/1OWIWVVjifCv3iByRP4IBx-Sn8d49oB_4/view?usp=drive_link
+
+target model:
+https://drive.google.com/file/d/15HIjy9QIrwjOwzD_-pJxFb-uCMKSwPyP/view?usp=drive_link
 
 ### Execute Attack
 
