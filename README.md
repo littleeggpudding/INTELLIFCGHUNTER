@@ -1,8 +1,3 @@
-# Enhancing Robustness Testing for Graph-based Android Malware Detection via Dependency-Aware Mutation and Multi-Objective Optimization
-
-This repository contains all the code used in the evaluation of graph-based Android malware detection. Due to the large size of some datasets, I have also provided a download link.
-
-
 <p align="center">
 
   <h1 align="center">Enhancing Robustness Testing for Graph-based Android Malware Detection via Dependency-Aware Mutation and Multi-Objective Optimization</h1>
