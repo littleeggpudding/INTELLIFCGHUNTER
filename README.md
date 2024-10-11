@@ -62,7 +62,7 @@ The `utils.py` script includes basic functions used during the attack, such as f
 
 For each scenario of testing methods, detailed parameter explanations are provided directly in the code. You can refer to those and supply the corresponding parameters to run the attack.
 
-#### FCGHUNTER
+#### (1) FCGHUNTER
 
 To simplify understanding, I’ve also included an example demonstrating how to attack an MLP with the degree feature.
 
@@ -85,7 +85,7 @@ python MutateFCG_malscan_MLP_model.py \
 **Note:** If SHAP values are used, they must be pre-calculated. You can follow the instructions provided in the SHAP repository here: [SHAP Documentation](https://github.com/shap/shap).
 
 
-#### BagAmmo
+#### (2) BagAmmo
 
 To simplify understanding, I’ve also included an example demonstrating how to attack an MLP with the degree feature using GCN surrogate model.
 
@@ -104,7 +104,7 @@ python baseline_malscan_MLP_model.py \
 ```
 
 
-#### HRAT
+#### (3) HRAT
 
 To simplify understanding, I’ve also included an example demonstrating how to attack an MLP with the degree feature
 
