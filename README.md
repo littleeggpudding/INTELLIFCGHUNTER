@@ -1,19 +1,36 @@
-# Project Structure Overview
+# Enhancing Robustness Testing for Graph-based Android Malware Detection via Dependency-Aware Mutation and Multi-Objective Optimization
 
-## FCGHUNTER
+This repository contains all the code used in the evaluation of graph-based Android malware detection. Due to the large size of some datasets, I have also provided a download link.
 
 
-training and test feature:
-https://drive.google.com/file/d/1AjNfQw7Z2Vom8KPpqfO6nHKimE44pEc4/view?usp=drive_link
+<p align="center">
 
-attack samples:
-https://drive.google.com/file/d/1OWIWVVjifCv3iByRP4IBx-Sn8d49oB_4/view?usp=drive_link
+  <h1 align="center">Enhancing Robustness Testing for Graph-based Android Malware Detection via Dependency-Aware Mutation and Multi-Objective Optimization</h1>
+  <div>This repository contains the datasets, training scripts for target Android Malware Detection (AMD) models, and testing tools( FCGHUNTER, BagAmmo and HRAT) for evaluating AMD models used in this study.</div>
+    <br>
 
-target model:
-https://drive.google.com/file/d/15HIjy9QIrwjOwzD_-pJxFb-uCMKSwPyP/view?usp=drive_link
+</p>
 
-surrogate model:
-https://drive.google.com/file/d/1pyCCWTCH9XtuaLNbnGsTeAb4Nv1_A4K8/view?usp=drive_link
+---
+
+### Dataset 
+
+## 1. Attack Samples
+[Download Attack Samples](https://drive.google.com/file/d/1OWIWVVjifCv3iByRP4IBx-Sn8d49oB_4/view?usp=drive_link)  
+This includes all graph representations of attack samples, which can be directly used as input for this project.
+
+## 2. Target Model
+[Download Target Model](https://drive.google.com/file/d/15HIjy9QIrwjOwzD_-pJxFb-uCMKSwPyP/view?usp=drive_link)  
+Contains 40 target models spanning 8 feature types and 5 classifiers.
+
+## 3. Surrogate Model
+[Download Surrogate Model](https://drive.google.com/file/d/1pyCCWTCH9XtuaLNbnGsTeAb4Nv1_A4K8/view?usp=drive_link)  
+Includes KNN surrogate models across 8 feature types and a GCN model for BagAmmo. Additionally, KNN's benign and malware models are included to compute KNN distances.
+
+## 4. Training and Test Features
+[Download Training & Test Features](https://drive.google.com/file/d/1AjNfQw7Z2Vom8KPpqfO6nHKimE44pEc4/view?usp=drive_link)  
+For users who wish to train models themselves.
+
 
 ### Execute Attack
 
