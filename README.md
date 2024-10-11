@@ -106,7 +106,13 @@ python baseline_malscan_MLP_model.py \
 
 #### (3) HRAT
 
-To simplify understanding, I’ve also included an example demonstrating how to attack an MLP with the degree feature
+To simplify understanding, I’ve also included an example demonstrating how to attack an KNN-1 with the degree feature
 
-
+```
+python main_attack_degree_knn1.py \
+    --train_set ./data/train.pkl \
+    --test_set ./data/test.pkl \
+    --test_set_cons ./constraints/ \
+    --save_dir ./results/ 
+```
 
