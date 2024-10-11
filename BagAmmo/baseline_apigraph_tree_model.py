@@ -358,22 +358,17 @@ if __name__ == '__main__':
     # load model, global variable
     target_model = load_model(args.target_model)
 
-    # generate the new shap for the failed samples
-    all_samples_features = []
 
-    zeros_list = [0] * 121
+    zeros_list = [0] * 2704
 
     for i in range(start_index, end_index):
         fcg_file = attack_samples[i]
-
-        load_start = time.time()
         fcg = FCG_apigraph(fcg_file, 1, zeros_list)
 
         feature = fcg.cal_apigraph_feature()
         non_zero_feature = np.count_nonzero(feature)
         if non_zero_feature != 0:
             feature = feature.flatten()
-            all_samples_features.append(feature)
 
             new_feature = feature.reshape(1, -1)
             Y_probs = target_model.predict_proba(new_feature)

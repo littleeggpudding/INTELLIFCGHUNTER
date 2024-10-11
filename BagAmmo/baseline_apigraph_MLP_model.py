@@ -356,10 +356,7 @@ if __name__ == '__main__':
     target_model = load_model(args.target_model)
     target_model_name = args.target_model_name
 
-    # generate the new shap for the failed samples
-    all_samples_features = []
-
-    zeros_list = [0] * 121
+    zeros_list = [0] * 2704
 
     for i in range(start_index, end_index):
         fcg_file = attack_samples[i]
@@ -371,7 +368,6 @@ if __name__ == '__main__':
         non_zero_feature = np.count_nonzero(feature)
         if non_zero_feature != 0:
             feature = feature.flatten()
-            all_samples_features.append(feature)
 
             new_feature = feature.reshape(1, -1)
             Y_probs = target_model.predict(new_feature)
