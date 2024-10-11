@@ -26,6 +26,16 @@ Includes KNN surrogate models across 8 feature types and a GCN model for BagAmmo
 [Download Training & Test Features](https://drive.google.com/file/d/1AjNfQw7Z2Vom8KPpqfO6nHKimE44pEc4/view?usp=drive_link)  
 For users who wish to train models themselves.
 
+### Enviorment
+
+Please downloading the corresponding dataset in advance, then installing the necessary libraries. 
+
+```
+python install -r requirements.txt
+```
+
+
+
 
 ### Execute Attack
 
