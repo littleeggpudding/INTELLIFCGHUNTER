@@ -37,45 +37,37 @@ python install -r requirements.txt
 
 ### 3. Execute Attack
 
-- **GA Framework**:
-  - `main_attack/MutateFCG_[feature_type]_[target_model].py`: This script implements a Genetic Algorithm (GA) framework tailored for different feature types and target models.
+##Introdcution about the structure
 
-### Util Classes
+Our codebase is organized as follows:
 
-- **FCG Initialization and Operations**:
-  - `type/FCG.py`: Initializes FCG (Function Call Graph), includes various perturbation operators about FCG, and processes operator subsequences.
-- **Mutation Operations**:
-  - `Type/Mutation.py`: Packages some basic atomic operations about FCG.
-- **Dependency-aware Sequence Construction**:
-  - `Type/MutationSequence.py`: Constructs the dependency-aware sequence to manage operation dependencies effectively.
+- **FCGHUNTER**
+- **BagAmmo**
+- **HRAT**
 
-## Other Utilities
+Additionally, there is an "Other" directory which includes extra tasks:
 
-- **Classification**:
-  - `main_attack/Classify.py`: Defines, trains, and tests all target models, including 5 ML-based classifiers and GCN/MLP surrogate models.
-- **FCG Extraction**:
-  - `main_attack/ExtractFCG.py`: Extracts FCG from an APK and stores it in a NetworkX GEXF format.
-- **Feature Extraction**:
-  - `main_attack/ExtractFeature.py`: Extracts feature vectors from FCG, including three types of graph embeddings.
+- **Classify**: Contains scripts for training target models and substitute models (e.g., MLP, GCN).
+- **ExtractFCG**: Extracts function call graphs (FCG) from APK files.
+- **ExtractFeature**: Includes all feature extraction methods.
 
-## Baselines
+The "type" directory contains utility classes:
 
-### Baseline 1: BagAmmo
+- **FCG**: Initializes the Function Call Graph (FCG), includes various perturbation operators, and processes operator subsequences.
+- **Mutation**: Provides basic atomic operations related to FCG mutations.
+- **MutationSequence**: Constructs dependency-aware sequences to manage operation dependencies.
 
-- **Execute Attack**:
-  - For example, for `feature_type: APIGraph, target_model: MLP`, execute:
-    - `main_attack/baseline_APIGraph_add_edge_MLP`
-  - Parameters are specified within the files.
+The `utils.py` script includes basic functions used during the attack, such as file saving and logging.
 
-### Baseline 2: HRAT
+#### FCGHUNTER
 
-- **Execute Attack**:
-  - `HRAT-copy-main/HRAT_Attack_Malscan/main_attack_[feature_type]_[target_model]`
+1. Example of execution:
 
-## Repackaging: Java Project
+#### BagAmmo
 
-1. **Preparation**:
-   - Place the generated sequences and original APK in the designated folder.
+1. Example of execution:
 
-2. **Execute Repackaging**:
-   - Run `Repackage/APPMod/FCGModification/src/ZacharyKz/mainModificationNew.java` to apply the modifications to the APK.
+#### HRAT
+
+1. Example of execution:
+
