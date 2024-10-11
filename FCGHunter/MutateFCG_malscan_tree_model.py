@@ -133,7 +133,6 @@ def mutation_with_guidance(fcg, target_att_bounds):
     return result, gen
 
 def save_mutated_fcg(ori_fcg, ms, gen):
-    # 不改变fcg本身
     fcg = copy.deepcopy(ori_fcg)
     fcg.process_mutations(ms)
     apk_name = fcg.apk_name
@@ -167,7 +166,7 @@ def mutation_with_guidance_degree(fcg, target_bounds):
             adjustment_ratio = actual_value / upper_bound
             add_sparse_nodes = max(add_sparse_nodes, int(adjustment_ratio * total_nodes))
 
-    add_sparse_nodes = min(add_sparse_nodes, 10000)
+    add_sparse_nodes = min(add_sparse_nodes, steps)
 
     # Create initial mutation state
     mutations = Mutations(add_sparse_nodes, add_dense_nodes, longlink_times, longlink_length, sensitive_nodes)
@@ -193,7 +192,7 @@ def mutation_with_guidance_degree(fcg, target_bounds):
             if gene_idx not in longlink_times:
                 longlink_times[gene_idx] = 1
             longlink_times[gene_idx] = max(int(adjustment_ratio * current_degree), longlink_times[gene_idx])
-            longlink_times[gene_idx] = min(longlink_times[gene_idx], 10000)
+            longlink_times[gene_idx] = min(longlink_times[gene_idx], steps)
 
     # Apply the final mutation changes
     mutations = Mutations(add_sparse_nodes, add_dense_nodes, longlink_times, longlink_length, sensitive_nodes)
@@ -239,9 +238,9 @@ def mutation_with_guidance_katz(fcg, target_att_bounds):
 
         if actual_value > upper_bound:
             # Approximate dense node addition for Katz feature reduction
-            add_density_nodes_gene = random.randint(200, 500)
+            add_density_nodes_gene = random.randint(steps, steps*10)
 
-    add_density_nodes_gene = min(add_density_nodes_gene, 10000)
+    add_density_nodes_gene = min(add_density_nodes_gene, steps*10)
     ms = Mutations(add_sparse_nodes_gene, add_density_nodes_gene, longlink_times_gene, longlink_len_gene,
                    longlink_gene_detail)
 
@@ -265,7 +264,7 @@ def mutation_with_guidance_katz(fcg, target_att_bounds):
 
             longlink_len_gene[gene_index] = 1
             longlink_times_gene[gene_index] = max(longlink_times, longlink_times_gene.get(gene_index, 1))
-            longlink_times_gene[gene_index] = min(longlink_times_gene[gene_index], 10000)
+            longlink_times_gene[gene_index] = min(longlink_times_gene[gene_index], steps*10)
 
     # Perform mutation after adjustments
     ms = Mutations(add_sparse_nodes_gene, add_density_nodes_gene, longlink_times_gene, longlink_len_gene,

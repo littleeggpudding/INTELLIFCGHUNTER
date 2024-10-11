@@ -9,9 +9,9 @@ import glob
 
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
-from type.FCG_malscan_tree import FCG_malscan_tree as FCG
-from type.Mutations import Mutations
-from utils import load_model, process_tree_based_model
+from type.FCG_ma_api_tree import FCG_ma_api_tree as FCG
+from utils import load_model
+from utils import process_tree_based_model_mamadroid_apigraph as process_tree_based_model
 import numpy as np
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print("device", device)
@@ -26,576 +26,257 @@ pop_num = None
 max_generation = None
 steps = None
 
-def ga(fcg, target_bounds, sparse_gene, dense_gene, longlink_times_gene,
-                               longlink_len_gene, sensitive_nodes):
-    # Initialize gene pools for mutation
-    sparse_gene_pool = [int(sparse_gene * r) for r in [0.8, 0.9, 1.0, 1.1, 1.2]]
-    dense_gene_pool = [int(dense_gene * r) for r in [0.8, 0.9, 1.0, 1.1, 1.2]]
 
-    longlink_len_pool = {}
-    longlink_times_pool = {}
+def ga(fcg, target_att_bounds):
+    """
+    Genetic Algorithm for optimizing Mamadroid features by adjusting the number of added edges.
 
-    # Generate pools for longlink genes
-    for i in range(len(longlink_times_gene)):
-        if longlink_times_gene[i] == 0:
-            continue
-        longlink_len_pool[i] = random.choices(range(10), k=3) + [longlink_len_gene[i]]
-        longlink_times_pool[i] = [int(longlink_times_gene[i] * r) for r in [0.5, 0.7, 1.0]]
+    Parameters:
+    - fcg: The function call graph.
+    - target_att_bounds: Bounds for features that need to be adjusted.
 
-    # Initialize population for the genetic algorithm
+    Returns:
+    - result: Whether a successful attack was found.
+    - best_individual: The best individual (mutation) found by the GA.
+    - generation_count: The number of generations taken to find the solution.
+    """
+
+    # Initialize population and set random seed
+    random.seed(42)
+    init_population_size = pop_num * 10
+    population_size = pop_num
     population = []
 
-    for _ in range(pop_num):
-        sparse_gene = random.choice(sparse_gene_pool)
-        dense_gene = random.choice(dense_gene_pool)
-        longlink_times = [0] * len(sensitive_nodes)
-        longlink_len = [0] * len(sensitive_nodes)
+    types_num = len(fcg.type_count)
+    max_add_num = np.zeros((types_num, types_num), dtype=int)
 
-        for j in range(len(sensitive_nodes)):
-            if j in longlink_times_pool:
-                longlink_times[j] = random.choice(longlink_times_pool[j])
-                longlink_len[j] = random.choice(longlink_len_pool[j])
+    # Calculate the maximum number of edges that can be added between each pair of node types
+    for i in range(types_num):
+        for j in range(types_num):
+            max_add_num[i][j] = int(fcg.type_count[i] * fcg.type_count[j] - fcg.detail_edges[i][j])
 
-        ms = Mutations(sparse_gene, dense_gene, longlink_times, longlink_len, sensitive_nodes)
-        population.append(ms)
+    # Create the initial population
+    for _ in range(init_population_size):
+        add_num_individual = np.zeros((types_num, types_num))
+        for i in range(types_num - 2, types_num):
+            for j in range(types_num):
+                tmp_max_add_num = min(steps, max_add_num[i][j])
+                add_num_individual[i][j] = random.randint(0, tmp_max_add_num)
+        population.append(add_num_individual)
 
+    generation = max_generation
 
-    # Begin GA process
-    for gen in range(max_generation):
+    for curr_gen in range(generation):
         # Calculate fitness for each individual in the population
         fitness = []
-        for ms in population:
-            feature = calc_feature(fcg, ms)
+        for individual in population:
+            feature = calc_feature(fcg, individual)
             att_score = target_model.predict(feature).reshape(-1)
-            if att_score[0] < 0.5:
-                # Attack successful, return the mutation and the generation number
-                return True, ms, gen + 1
 
-            # Calculate fitness score based on target bounds
-            score = sum(1 for i, (lb, ub) in enumerate(target_bounds) if lb < feature[0][i] < ub)
-            fitness.append(score)
+            # Check if attack is successful
+            if att_score[0] < 0.5:
+                save_mutated_fcg(fcg, individual, curr_gen)
+                return True, individual, curr_gen + 1  # Successful attack
+
+            # Calculate fitness based on how many features are within the target bounds
+            fit_score = 0
+            for index in range(len(target_att_bounds)):
+                lower_bound, upper_bound = target_att_bounds[index]
+                if lower_bound != -1 and upper_bound != -1:
+                    actual_value = feature[0][index]
+                    if lower_bound < actual_value < upper_bound:
+                        fit_score += 1
+            fitness.append(fit_score)
 
         # Sort population by fitness in descending order
         population = [x for _, x in sorted(zip(fitness, population), key=lambda pair: pair[0], reverse=True)]
 
-        # Create next generation
+        # Generate the next generation
         next_generation = []
-        while len(next_generation) < pop_num:
-            # Select two best individuals from random groups
-            group_size = int(pop_num * 0.2)
-            group1 = random.sample(range(pop_num), group_size)
-            group2 = random.sample(range(pop_num), group_size)
+        while len(next_generation) < population_size:
+            # Select 2 individuals using tournament selection
+            group_size = int(population_size * 0.2)
+            group1 = random.sample(range(population_size), group_size)
+            group2 = random.sample(range(population_size), group_size)
+
             best1 = population[group1[0]]
             best2 = population[group2[0]]
 
-            # Perform crossover
-            sparse_gene = random.choice([best1.add_sparse_nodes_gene, best2.add_sparse_nodes_gene])
-            dense_gene = random.choice([best1.add_density_nodes_gene, best2.add_density_nodes_gene])
-            longlink_times = [random.choice([best1.longlink_times_gene[j], best2.longlink_times_gene[j]]) 
-                              for j in range(len(sensitive_nodes))]
-            longlink_len = [random.choice([best1.longlink_len_gene[j], best2.longlink_len_gene[j]]) 
-                            for j in range(len(sensitive_nodes))]
+            # Crossover to produce a new individual
+            new_individual = np.zeros((types_num, types_num))
+            for i in range(types_num):
+                for j in range(types_num):
+                    new_individual[i][j] = random.choice([best1[i][j], best2[i][j]])
 
-            # Perform mutation with a 5% probability
+            # Mutation with a 5% chance
             if random.random() < 0.05:
-                sparse_gene = random.choice([int(sparse_gene * 0.9), int(sparse_gene * 1.1)])
-                dense_gene = random.choice([int(dense_gene * 0.9), int(dense_gene * 1.1)])
-                for j in range(len(sensitive_nodes)):
-                    longlink_times[j] = random.choice([int(longlink_times[j] * 0.9), int(longlink_times[j] * 1.1)])
-                    longlink_len[j] = random.choice([int(longlink_len[j] * 0.9), int(longlink_len[j] * 1.1)])
+                for i in range(types_num - 2, types_num):
+                    for j in range(types_num):
+                        new_individual[i][j] = random.randint(0, max_add_num[i][j])
 
-            ms = Mutations(sparse_gene, dense_gene, longlink_times, longlink_len, sensitive_nodes)
-            next_generation.append(ms)
+            next_generation.append(new_individual)
 
-        # Replace population with the next generation
+        # Update population with the new generation
         population = next_generation
 
-    # Return failure if no successful attack was found
-    return False, None, -1
+    return False, None, generation  # No successful attack found after all generations
+
 
 def mutation_with_guidance(fcg, target_att_bounds):
-    if feature_type == 'degree':
-        result,ms,gen = mutation_with_guidance_degree(fcg, target_att_bounds)
-    elif feature_type == 'katz':
-        result,ms,gen = mutation_with_guidance_katz(fcg, target_att_bounds)
-    elif feature_type == 'closeness':
-        result,ms,gen = mutation_with_guidance_closeness(fcg, target_att_bounds)
-    elif feature_type == 'harmonic':
-        result,ms,gen = mutation_with_guidance_harmonic(fcg, target_att_bounds)
-    elif feature_type == 'concentrate':
-        result,ms,gen = mutation_with_guidance_combine(fcg, target_att_bounds)
-    elif feature_type == 'average':
-        result,ms,gen = mutation_with_guidance_average(fcg, target_att_bounds)
-    else:
-        result,ms,gen = False,None,-1
+    # Helper function to convert feature index to type ('self-defined', 'obfuscated', etc.)
+    def index_to_type(index):
+        types_num = len(fcg.type_count)
+        if index < (types_num - 2) * types_num:
+            return "NA"
+        elif index < (types_num - 1) * types_num:
+            return "self-defined"
+        else:
+            return "obfuscated"
+
+    # Helper function to map feature index to a pair of types
+    def featureindex_to_typepair(index):
+        types_num = len(fcg.type_count)
+        from_type = index // types_num
+        to_type = index % types_num
+        return from_type, to_type
+
+    ori_feature = fcg.extract_features(feature_type)
+
+    # Identify mutable indexes, representing edges that can be added
+    mutable_indexes = []
+    types_num = len(fcg.type_count)
+
+    # Check for self-defined edges
+    if fcg.type_count[types_num - 2] > 0:
+        for i in range(types_num):
+            if fcg.type_count[i] > 0:
+                index = (types_num - 2) * types_num + i
+                mutable_indexes.append(index)
+
+    # Check for obfuscated edges
+    if fcg.type_count[types_num - 1] > 0:
+        for i in range(types_num):
+            if fcg.type_count[i] > 0:
+                index = (types_num - 1) * types_num + i
+                mutable_indexes.append(index)
+
+    # Identify critical features based on bounds
+    critical_feature_index = []
+    for index in range(len(target_att_bounds)):
+        lower_bound, upper_bound = target_att_bounds[index]
+        if lower_bound != -1 and upper_bound != -1:
+            critical_feature_index.append(index)
+
+
+    # Calculate required number of edges to decrease certain features
+    self_defined_addnum, obfuscated_addnum = 0, 0
+    for index in critical_feature_index:
+        lower_bound, upper_bound = target_att_bounds[index]
+        actual_value = ori_feature[index]
+        if actual_value > upper_bound:
+            from_type, to_type = featureindex_to_typepair(index)
+            ori_edge_num = fcg.detail_edges[from_type][to_type]
+            ratio = actual_value / upper_bound
+            addnum = int(ratio * ori_edge_num)
+            if index_to_type(index) == "self-defined":
+                self_defined_addnum = max(self_defined_addnum, addnum)
+            else:
+                obfuscated_addnum = max(obfuscated_addnum, addnum)
+
+    # Prepare matrix to store the number of additional edges needed for mutation
+    add_num_detail = np.zeros((types_num, types_num))
+
+    # Try to add edges for self-defined types
+    self_defined_addnum_needed = self_defined_addnum
+    for i in range(types_num):
+        if self_defined_addnum_needed <= 0:
+            break
+        max_add_num = fcg.type_count[i] * fcg.type_count[types_num - 2] - fcg.detail_edges[types_num - 2][i]
+        if max_add_num > self_defined_addnum_needed:
+            add_num_detail[types_num - 2][i] = self_defined_addnum_needed
+            self_defined_addnum_needed = 0
+        else:
+            add_num_detail[types_num - 2][i] = max_add_num
+            self_defined_addnum_needed -= max_add_num
+
+    # Try to add edges for obfuscated types
+    obfuscated_addnum_needed = obfuscated_addnum
+    for i in range(types_num):
+        if obfuscated_addnum_needed <= 0:
+            break
+        max_add_num = fcg.type_count[i] * fcg.type_count[types_num - 1] - fcg.detail_edges[types_num - 1][i]
+        if max_add_num > obfuscated_addnum_needed:
+            add_num_detail[types_num - 1][i] = obfuscated_addnum_needed
+            obfuscated_addnum_needed = 0
+        else:
+            add_num_detail[types_num - 1][i] = max_add_num
+            obfuscated_addnum_needed -= max_add_num
+
+    # Apply mutations to the edge matrix
+    detail_new = copy.deepcopy(fcg.detail_edges)
+    for i in range(types_num):
+        for j in range(types_num):
+            detail_new[i][j] += add_num_detail[i][j]
+
+    # Calculate new features after mutation
+    new_feature = fcg._normalizing_matrix(detail_new).flatten()
+
+    # Check if additional edges are needed to meet the lower bound
+    for index in critical_feature_index:
+        lower_bound, upper_bound = target_att_bounds[index]
+        actual_value = new_feature[index]
+        if actual_value < lower_bound:
+            from_type, to_type = featureindex_to_typepair(index)
+            ori_edge_num = fcg.detail_edges[from_type][to_type]
+            ratio = lower_bound / actual_value if actual_value != 0 else lower_bound
+            addnum = int(ratio * ori_edge_num)
+            add_num_detail[from_type][to_type] += addnum
+
+    # Validate and limit the number of edges added
+    for i in range(types_num - 2, types_num):
+        for j in range(types_num):
+            max_add_num = fcg.type_count[j] * fcg.type_count[i] - fcg.detail_edges[i][j]
+            add_num_detail[i][j] = min(add_num_detail[i][j], max_add_num)
+
+    # Final feature calculation after mutation
+    final_feature = fcg._normalizing_matrix(copy.deepcopy(fcg.detail_edges)).flatten().reshape(1, -1)
+
+    # Predict attack result using the model
+    att_score = target_model.predict(final_feature).reshape(-1)
+    if att_score[0] < 0.5:
+        save_mutated_fcg(fcg, add_num_detail, 0)
+        return True, 0, len(fcg.edges)  # Successful attack in initial mutation
+
+    # Perform genetic algorithm (GA) if the initial attack failed
+    result, add_num_detail, gen = ga(fcg, target_att_bounds)
+
     if result:
-        save_mutated_fcg(fcg, ms, gen)
-    return result, gen
+        ori_edge_num = len(fcg.edges)
+        new_edge_num = np.sum(add_num_detail[types_num - 2: types_num])
+        perturbation = new_edge_num / (ori_edge_num + 1e-10)
+    else:
+        perturbation = 0
+
+    return result, gen, perturbation
 
 def save_mutated_fcg(ori_fcg, ms, gen):
-    # 不改变fcg本身
     fcg = copy.deepcopy(ori_fcg)
     fcg.process_mutations(ms)
     apk_name = fcg.apk_name
     save_path = os.path.join(save_dir, str(gen)+"_"+apk_name+".gexf")
     fcg.save_gexf(save_path)
 
-def mutation_with_guidance_degree(fcg, target_bounds):
-    original_feature = np.array(fcg.extract_feature(type=feature_type)).reshape(1, -1)
-
-    add_sparse_nodes = 0
-    add_dense_nodes = 0
-
-    sensitive_nodes = fcg.sensitive_nodes
-    longlink_length = [0] * len(sensitive_nodes)
-    longlink_times = [0] * len(sensitive_nodes)
-
-    # Step 1: Adjust degree feature (lowering degree by adding sparse nodes)
-    # Step 2: Adjust longlink feature (increasing degree for specific nodes)
-
-    total_nodes = len(fcg.nodes)
-
-    # Adjust sparse nodes gene based on degree feature bounds
-    for idx in range(len(target_bounds)):
-        lower_bound, upper_bound = target_bounds[idx]
-        if lower_bound == -1 and upper_bound == -1:
-            continue
-
-        actual_value = original_feature[0][idx]
-
-        if actual_value > upper_bound:
-            adjustment_ratio = actual_value / upper_bound
-            add_sparse_nodes = max(add_sparse_nodes, int(adjustment_ratio * total_nodes))
-
-    add_sparse_nodes = min(add_sparse_nodes, 10000)
-
-    # Create initial mutation state
-    mutations = Mutations(add_sparse_nodes, add_dense_nodes, longlink_times, longlink_length, sensitive_nodes)
-
-    # Calculate the new feature after applying mutations
-    current_feature = calc_feature(fcg, mutations)
-
-    # Adjust longlink gene if the actual value is lower than the bound
-    for idx in range(len(target_bounds)):
-        lower_bound, upper_bound = target_bounds[idx]
-        if lower_bound == -1 and upper_bound == -1:
-            continue
-
-        actual_value = current_feature[0][idx]
-
-        if actual_value < lower_bound:
-            current_degree = fcg.unnorm_degree[idx]
-            adjustment_ratio = lower_bound / actual_value
-            node_id = fcg.sensitive_apis_bitmap[idx]
-            gene_idx = sensitive_nodes.index(node_id)
-
-            longlink_length[gene_idx] = 1
-            if gene_idx not in longlink_times:
-                longlink_times[gene_idx] = 1
-            longlink_times[gene_idx] = max(int(adjustment_ratio * current_degree), longlink_times[gene_idx])
-            longlink_times[gene_idx] = min(longlink_times[gene_idx], 10000)
-
-    # Apply the final mutation changes
-    mutations = Mutations(add_sparse_nodes, add_dense_nodes, longlink_times, longlink_length, sensitive_nodes)
-
-    # Calculate the new feature and check the attack success
-    new_feature = calc_feature(fcg, mutations)
-    attack_score = target_model.predict(new_feature).reshape(-1)
-
-    # Check if the attack was successful
-    if attack_score[0] < 0.5:
-        return True, mutations, 0
-    else:
-        # If attack fails, continue with a genetic algorithm for further optimization
-        success, mutations, generation = ga(
-            fcg, target_bounds,
-            add_sparse_nodes, add_dense_nodes,
-            longlink_times, longlink_length, sensitive_nodes
-        )
-        return success, mutations, generation
-
-
-def mutation_with_guidance_katz(fcg, target_att_bounds):
-    alpha = 0.005
-
-    # Extract original Katz feature
-    ori_feature = np.array(fcg.extract_feature(type=feature_type)).reshape(1, -1)
-
-    add_sparse_nodes_gene = 0
-    add_density_nodes_gene = 0
-    longlink_len_gene = [0] * len(fcg.sensitive_nodes)
-    longlink_times_gene = [0] * len(fcg.sensitive_nodes)
-    longlink_gene_detail = fcg.sensitive_nodes
-
-    # Adjust Katz feature in two stages:
-    # 1. First adjust by adding dense nodes
-    # 2. Second adjust by increasing specific Katz features via longlink
-
-    # Stage 1: Reduce Katz features by adding dense nodes
-    for index, (lower_bound, upper_bound) in enumerate(target_att_bounds):
-        if lower_bound == -1 and upper_bound == -1:
-            continue
-        actual_value = ori_feature[0][index]
-
-        if actual_value > upper_bound:
-            # Approximate dense node addition for Katz feature reduction
-            add_density_nodes_gene = random.randint(200, 500)
-
-    add_density_nodes_gene = min(add_density_nodes_gene, 10000)
-    ms = Mutations(add_sparse_nodes_gene, add_density_nodes_gene, longlink_times_gene, longlink_len_gene,
-                   longlink_gene_detail)
-
-    # Calculate the current feature after mutation
-    cur_feature = calc_feature(fcg, ms)
-
-    # Stage 2: Increase specific Katz features by adjusting longlink
-    for index, (lower_bound, upper_bound) in enumerate(target_att_bounds):
-        if lower_bound == -1 and upper_bound == -1:
-            continue
-        actual_value = cur_feature[0][index]
-
-        if actual_value < lower_bound:
-            # Adjust longlink based on Katz propagation formula
-            ori_degree = fcg.unnorm_degree[index]
-            mid_result = lower_bound / actual_value * (1 + alpha * ori_degree)
-            longlink_times = mid_result / alpha
-
-            nodeid = fcg.sensitive_apis_bitmap[index]
-            gene_index = longlink_gene_detail.index(nodeid)
-
-            longlink_len_gene[gene_index] = 1
-            longlink_times_gene[gene_index] = max(longlink_times, longlink_times_gene.get(gene_index, 1))
-            longlink_times_gene[gene_index] = min(longlink_times_gene[gene_index], 10000)
-
-    # Perform mutation after adjustments
-    ms = Mutations(add_sparse_nodes_gene, add_density_nodes_gene, longlink_times_gene, longlink_len_gene,
-                   longlink_gene_detail)
-
-    new_feature = calc_feature(fcg, ms)
-    att_score = target_model.predict(new_feature).reshape(-1)
-
-    if att_score[0] < 0.5:
-        return True, ms, 0  # Attack succeeded
-
-    # Enter GA if the attack fails after direct mutation
-    result, ms, gen = ga(fcg, target_att_bounds, add_sparse_nodes_gene, add_density_nodes_gene,
-                                                 longlink_times_gene, longlink_len_gene, longlink_gene_detail)
-
-    return result, ms, gen
-
-def mutation_with_guidance_harmonic(fcg, target_att_bounds):
-    feature_type = 'harmonic'
-
-    # Extract original harmonic feature
-    ori_feature = np.array(fcg.extract_feature(type=feature_type)).reshape(1, -1)
-
-    add_sparse_nodes_gene = 0
-    add_density_nodes_gene = 0
-
-    # Initialize longlink gene details (corresponding to sensitive nodes)
-    longlink_gene_detail = fcg.sensitive_nodes
-    longlink_len_gene = [0] * len(longlink_gene_detail)
-    longlink_times_gene = [0] * len(longlink_gene_detail)
-
-    # Harmonic feature adjustment: increase only, no decrease
-    cur_feature = ori_feature
-    for index, (lower_bound, upper_bound) in enumerate(target_att_bounds):
-        if lower_bound == -1 and upper_bound == -1:
-            continue
-        actual_value = cur_feature[0][index]
-
-        # If the harmonic feature needs to be increased, add longlinks
-        if actual_value < lower_bound:
-            # Calculate the gap and add longlink accordingly
-            gap = lower_bound - actual_value
-            longlink_times = int(gap) + 1  # Ensure at least one longlink is added
-            node_id = fcg.sensitive_apis_bitmap[index]
-            gene_index = longlink_gene_detail.index(node_id)
-
-            longlink_len_gene[gene_index] = 1  # Set the length of longlink
-            longlink_times_gene[gene_index] = max(longlink_times, longlink_times_gene.get(gene_index, 1))
-            longlink_times_gene[gene_index] = min(longlink_times_gene[gene_index], 10000)  # Cap at 10,000
-
-    # Create mutations object with the updated longlink information
-    ms = Mutations(add_sparse_nodes_gene, add_density_nodes_gene, longlink_times_gene, longlink_len_gene, longlink_gene_detail)
-
-    # Calculate the new feature after mutation
-    new_feature = calc_feature(fcg, ms)
-    att_score = target_model.predict(new_feature).reshape(-1)
-
-    result = False
-    if att_score[0] < 0.5:
-        result = True
-        gen = 0
-    else:
-        # Enter GA process if the attack fails
-        result, ms, gen = ga(
-            fcg, target_att_bounds,
-            add_sparse_nodes_gene, add_density_nodes_gene,
-            longlink_times_gene, longlink_len_gene, longlink_gene_detail
-        )
-
-    return result, ms, gen
-
-def mutation_with_guidance_closeness(fcg, target_att_bounds):
-    feature_type = 'closeness'
-    ori_feature = np.array(fcg.extract_feature(type=feature_type)).reshape(1, -1)
-
-    add_sparse_nodes_gene = 0
-    add_density_nodes_gene = 0
-    longlink_gene_detail = fcg.sensitive_nodes
-    longlink_len_gene = [0] * len(longlink_gene_detail)
-    longlink_times_gene = [0] * len(longlink_gene_detail)
-
-    # Step 1: Reduce closeness feature (if needed)
-    node_num = len(fcg.nodes)
-    for index, (lower_bound, upper_bound) in enumerate(target_att_bounds):
-        if lower_bound == -1 and upper_bound == -1:
-            continue
-        actual_value = ori_feature[0][index]
-
-        # If closeness is greater than the upper bound, add sparse nodes
-        if actual_value > upper_bound:
-            ratio = actual_value / upper_bound
-            add_sparse_nodes_gene = max(add_sparse_nodes_gene, int(ratio * node_num))
-
-    ms = Mutations(add_sparse_nodes_gene, add_density_nodes_gene, longlink_times_gene, longlink_len_gene, longlink_gene_detail)
-    cur_feature = calc_feature(fcg, ms)
-
-    # Step 2: Increase closeness feature (if needed)
-    for index, (lower_bound, upper_bound) in enumerate(target_att_bounds):
-        if lower_bound == -1 and upper_bound == -1:
-            continue
-        actual_value = cur_feature[0][index]
-
-        # If closeness is less than the lower bound, add long links
-        if actual_value < lower_bound:
-            neighbor_num, distance_sum = fcg.clossness_extra_details[index]
-            lt1 = int(lower_bound / actual_value * (neighbor_num - 1) ** 2 / distance_sum - (neighbor_num - 1))
-            lt2 = int((np.sqrt(10 * lower_bound / actual_value) - 1) * (neighbor_num - 1))
-            longlink_times = max(lt1, lt2)
-
-            node_id = fcg.sensitive_apis_bitmap[index]
-            gene_index = longlink_gene_detail.index(node_id)
-            longlink_len_gene[gene_index] = 1
-            longlink_times_gene[gene_index] = max(longlink_times, longlink_times_gene.get(gene_index, 1))
-
-            # Limit the long link times to 10000
-            longlink_times_gene[gene_index] = min(longlink_times_gene[gene_index], 10000)
-
-    ms = Mutations(add_sparse_nodes_gene, add_density_nodes_gene, longlink_times_gene, longlink_len_gene, longlink_gene_detail)
-    new_feature = calc_feature(fcg, ms)
-    att_score = target_model.predict(new_feature).reshape(-1)
-
-    # If attack succeeds, return success
-    if att_score[0] < 0.5:
-        return True, ms, 0
-
-    # If attack fails, enter GA for further optimization
-    result, ms, gen = ga(
-        fcg, target_att_bounds,
-        add_sparse_nodes_gene, add_density_nodes_gene,
-        longlink_times_gene, longlink_len_gene, longlink_gene_detail
-    )
-    return result, ms, gen
-
-def mutation_with_guidance_average(fcg, target_att_bounds):
-
-    # Extract original feature
-    ori_feature = np.array(fcg.extract_feature(type=feature_type)).reshape(1, -1)
-
-    add_sparse_nodes_gene = 0
-    add_density_nodes_gene = 0
-
-    # Initialize longlink gene details corresponding to sensitive nodes
-    longlink_gene_detail = fcg.sensitive_nodes
-    longlink_len_gene = [0] * len(longlink_gene_detail)
-    longlink_times_gene = [0] * len(longlink_gene_detail)
-
-    node_num = len(fcg.nodes)
-
-    # First pass: Adjust average feature by increasing sparse nodes
-    for index, (lower_bound, upper_bound) in enumerate(target_att_bounds):
-        if lower_bound == -1 and upper_bound == -1:
-            continue
-        actual_value = ori_feature[0][index]
-
-        # If the actual value exceeds the upper bound, reduce it by adding sparse nodes
-        if actual_value > upper_bound:
-            harmonic_feature = fcg.harmonic_feature[index]
-
-            # Ensure harmonic feature does not exceed upper_bound * 4
-            if harmonic_feature >= upper_bound * 4:
-                continue
-
-            # Calculate the ratio for adjustment
-            ratio = (upper_bound * 4 - harmonic_feature) / (actual_value * 4 - harmonic_feature)
-            add_sparse_nodes_gene = max(add_sparse_nodes_gene, int(ratio * node_num))
-            add_density_nodes_gene = 800
-
-    # Limit the number of sparse nodes added
-    add_sparse_nodes_gene = min(add_sparse_nodes_gene, 200000)
-
-    # Apply mutation to calculate the current feature
-    ms = Mutations(add_sparse_nodes_gene, add_density_nodes_gene, longlink_times_gene, longlink_len_gene, longlink_gene_detail)
-    cur_feature = calc_feature(fcg, ms)
-
-    # Second pass: Adjust average feature by increasing longlinks
-    for index, (lower_bound, upper_bound) in enumerate(target_att_bounds):
-        if lower_bound == -1 and upper_bound == -1:
-            continue
-        actual_value = cur_feature[0][index]
-
-        # If actual value is below the lower bound, increase longlinks
-        if actual_value < lower_bound:
-            cur_degree = fcg.unnorm_degree[index]
-            gap = lower_bound - actual_value
-            longlink_times = int(gap / 0.25) + 1  # Each longlink increases by 0.25
-            node_id = fcg.sensitive_apis_bitmap[index]
-            gene_index = longlink_gene_detail.index(node_id)
-
-            longlink_len_gene[gene_index] = 1
-            longlink_times_gene[gene_index] = max(longlink_times, longlink_times_gene.get(gene_index, 1))
-            longlink_times_gene[gene_index] = min(longlink_times_gene[gene_index], 10000)  # Cap at 10,000
-
-    # Create mutation object with updated longlink information
-    ms = Mutations(add_sparse_nodes_gene, add_density_nodes_gene, longlink_times_gene, longlink_len_gene, longlink_gene_detail)
-    new_feature = calc_feature(fcg, ms)
-    att_score = target_model.predict(new_feature).reshape(-1)
-
-    if att_score[0] < 0.5:
-        result = True
-        gen = 0
-    else:
-        # If attack fails, enter Genetic Algorithm (GA) for further optimization
-        result, ms, gen = ga(
-            fcg, target_att_bounds,
-            add_sparse_nodes_gene, add_density_nodes_gene, 
-            longlink_times_gene, longlink_len_gene, longlink_gene_detail
-        )
-
-    return result, ms, gen
-
-
-def mutation_with_guidance_combine(fcg, target_att_bounds):
-    alpha = 0.005
-    ori_feature = np.array(fcg.extract_feature(type=feature_type)).reshape(1, -1)
-
-    # Three mutation types:
-    # 1. Add sparse nodes: Add n1 new nodes and edges from the root_node to new nodes.
-    #    root_node is chosen from fcg.reserve_user_node.
-    #    n1 = add_sparse_nodes_gene
-    # 2. Add dense nodes: Add n2 new nodes and edges from root_node to new nodes, then connect lower index nodes
-    #    to higher index nodes.
-    #    n2 = add_density_nodes_gene
-    # 3. Add long links: Add t long links with length l, pointing to node N. The start node is root_node, and
-    #    l connected nodes are added sequentially, with the last node linking to N. Repeat t times.
-    #    t = longlink_times_gene[i], l = longlink_len_gene[i], N = longlink_gene_detail[i]
-
-    add_sparse_nodes_gene = 0
-    add_density_nodes_gene = 0
-    longlink_gene_detail = fcg.sensitive_nodes
-    longlink_len_gene = [0] * len(longlink_gene_detail)
-    longlink_times_gene = [0] * len(longlink_gene_detail)
-
-    # Step 1: Reduce feature values (if needed)
-    for index, (lower_bound, upper_bound) in enumerate(target_att_bounds):
-        if lower_bound == -1 and upper_bound == -1:
-            continue
-        actual_value = ori_feature[0][index]
-
-        # For degree feature (0-430), reduce by adding sparse nodes
-        if index < 430 and actual_value > upper_bound:
-            ratio = actual_value / upper_bound
-            node_num = len(fcg.nodes)
-            add_sparse_nodes_gene = max(add_sparse_nodes_gene, int(ratio * node_num))
-
-        # For Katz feature (430-860), reduce by adding dense nodes
-        elif index < 860 and actual_value > upper_bound:
-            add_density_nodes_gene = min(800, 100 * (int(len(fcg.nodes) / 100) + 1))
-
-        # For Closeness feature (860-1290), reduce by adding sparse nodes
-        elif index < 1290 and actual_value > upper_bound:
-            ratio = actual_value / upper_bound
-            node_num = len(fcg.nodes)
-            add_sparse_nodes_gene = max(add_sparse_nodes_gene, int(ratio * node_num))
-
-    add_sparse_nodes_gene = min(add_sparse_nodes_gene, 200000)
-
-    # Apply initial mutations to reduce features
-    ms = Mutations(add_sparse_nodes_gene, add_density_nodes_gene, longlink_times_gene, longlink_len_gene,
-                   longlink_gene_detail)
-    cur_feature = calc_feature(fcg, ms)
-
-    # Step 2: Increase feature values (if needed)
-    for index, (lower_bound, upper_bound) in enumerate(target_att_bounds):
-        if lower_bound == -1 and upper_bound == -1:
-            continue
-        actual_value = cur_feature[0][index]
-
-        # Increase degree feature (0-430) by adding long links
-        if index < 430 and actual_value < lower_bound:
-            cur_degree = fcg.unnorm_degree[index]
-            ratio = lower_bound / actual_value
-            node_id = fcg.sensitive_apis_bitmap[index]
-            gene_index = longlink_gene_detail.index(node_id)
-            longlink_len_gene[gene_index] = 1
-            longlink_times_gene[gene_index] = max(int(ratio * cur_degree), longlink_times_gene[gene_index])
-
-        # Increase Katz feature (430-860) by adding long links
-        elif index < 860 and actual_value < lower_bound:
-            ori_degree = fcg.unnorm_degree[index - 430]
-            mid_result = lower_bound / actual_value * (1 + alpha * ori_degree)
-            longlink_times = int(mid_result / alpha)
-            node_id = fcg.sensitive_apis_bitmap[index - 430]
-            gene_index = longlink_gene_detail.index(node_id)
-            longlink_len_gene[gene_index] = 1
-            longlink_times_gene[gene_index] = max(longlink_times, longlink_times_gene.get(gene_index, 1))
-
-        # Increase Closeness feature (860-1290) by adding long links
-        elif index < 1290 and actual_value < lower_bound:
-            neighbor_num, distance_sum = fcg.closeness_extra_details[index - 860]
-            lt1 = int(lower_bound / actual_value * (neighbor_num - 1) ** 2 / distance_sum - (neighbor_num - 1))
-            lt2 = int((np.sqrt(10 * lower_bound / actual_value) - 1) * (neighbor_num - 1))
-            longlink_times = max(lt1, lt2)
-            node_id = fcg.sensitive_apis_bitmap[index - 860]
-            gene_index = longlink_gene_detail.index(node_id)
-            longlink_len_gene[gene_index] = 1
-            longlink_times_gene[gene_index] = max(longlink_times, longlink_times_gene.get(gene_index, 1))
-
-        # Increase Harmonic feature (1290-1720) by adding long links
-        elif index >= 1290 and actual_value < lower_bound:
-            gap = lower_bound - actual_value
-            longlink_times = int(gap) + 1
-            node_id = fcg.sensitive_apis_bitmap[index - 1290]
-            gene_index = longlink_gene_detail.index(node_id)
-            longlink_len_gene[gene_index] = 1
-            longlink_times_gene[gene_index] = max(longlink_times, longlink_times_gene.get(gene_index, 1))
-
-    # Cap longlink_times_gene to 1000
-    longlink_times_gene = [min(times, 1000) for times in longlink_times_gene]
-
-    # Apply final mutations and calculate new features
-    ms = Mutations(add_sparse_nodes_gene, add_density_nodes_gene, longlink_times_gene, longlink_len_gene,
-                   longlink_gene_detail)
-    new_feature = calc_feature(fcg, ms)
-    att_score = target_model.predict(new_feature).reshape(-1)
-
-    if att_score[0] < 0.5:
-        return True, ms, 0
-    else:
-        # Enter GA for further optimization if attack fails
-        return ga(fcg, target_att_bounds,
-                                          add_sparse_nodes_gene, add_density_nodes_gene,
-                                          longlink_times_gene, longlink_len_gene, longlink_gene_detail)
-
-
-def calc_feature(ori_fcg, ms):
-    fcg = copy.deepcopy(ori_fcg)
-    fcg.process_mutations(ms)
-
-    feature = fcg.extract_feature(type=feature_type)
-    return np.array(feature).reshape(1, -1)
+def calc_feature(fcg, add_num_detail):
+    detail_new = copy.deepcopy(fcg.detail_edges)
+    types_num = len(fcg.type_count)
+    for i in range(types_num):
+        for j in range(types_num):
+            detail_new[i][j] += add_num_detail[i][j]
+
+    final_feature = fcg._normalizing_matrix(detail_new)
+    final_feature = final_feature.flatten()
+    final_feature = np.array(final_feature).reshape(1, -1)
+    return final_feature
 
 def parse_arguments():
     """
@@ -614,7 +295,7 @@ def parse_arguments():
     parser.add_argument('--attack_sample', type=str, required=True, help="Path to the attack samples.")
     parser.add_argument('--target_model', type=str, required=True, help="Path to the target model.")
     parser.add_argument('--feature_type', type=str,
-                        choices=['concentrate', 'average', 'degree', 'katz', 'closeness', 'harmonic'], required=True,
+                        choices=['mamadroid', 'apigraph'], required=True,
                         help="Type of MalScan feature extraction.")
 
 
@@ -666,7 +347,7 @@ if __name__ == '__main__':
     for i in range(start_index, end_index):
         fcg_file = attack_samples[i]
         fcg = FCG(fcg_file, label=1)
-        combined_feature = fcg.extract_feature(type=feature_type)
+        combined_feature = fcg.extract_features(feature_type)
         if combined_feature is not None:
             combined_feature = np.array(combined_feature)
             combined_feature = combined_feature.reshape(1, -1)
@@ -688,8 +369,7 @@ if __name__ == '__main__':
                 steps = args.steps
 
                 # prepare target bounds
-                fcg.reduce()
-                attackable, not_sure, target_att_bounds =process_tree_based_model(fcg, target_model, combined_feature, feature_type)
+                attackable, not_sure, target_att_bounds =process_tree_based_model(fcg, target_model, combined_feature)
 
                 if not attackable:
                     print("not attackable malware")
