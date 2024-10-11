@@ -59,15 +59,54 @@ The "type" directory contains utility classes:
 
 The `utils.py` script includes basic functions used during the attack, such as file saving and logging.
 
+
+For each scenario of testing methods, detailed parameter explanations are provided directly in the code. You can refer to those and supply the corresponding parameters to run the attack.
+
 #### FCGHUNTER
 
-1. Example of execution:
+To simplify understanding, I’ve also included an example demonstrating how to attack an MLP with the degree feature.
+
+```
+python MutateFCG_malscan_MLP_model.py \
+    --save_path /path/to/save_results \
+    --attack_sample /path/to/attack_samples \
+    --target_model /path/to/target_model \
+    --target_model_name target_model_name \
+    --surrogate_model /path/to/surrogate_model \
+    --surrogate_model_name MLP \
+    --feature_type degree \
+    --shap_value /path/to/shap_value_file \
+    --pop_num 100 \
+    --max_generation 40 \
+    --steps 300 \
+    --non-shap
+
+```
+**Note:** If SHAP values are used, they must be pre-calculated. You can follow the instructions provided in the SHAP repository here: [SHAP Documentation](https://github.com/shap/shap).
+
 
 #### BagAmmo
 
-1. Example of execution:
+To simplify understanding, I’ve also included an example demonstrating how to attack an MLP with the degree feature using GCN surrogate model.
+
+```
+python baseline_malscan_MLP_model.py \
+    --save_path /path/to/save_results \
+    --attack_sample /path/to/attack_samples \
+    --target_model "./models/target_model.pth" \
+    --target_model_name target_model_name \
+    --surrogate_model "surrogate_models/gcn_model.pth" \
+    --surrogate_model_name "GCN" \
+    --feature_type "degree" \
+    --pop_num 100 \
+    --max_generation 40 \
+    --steps 300
+```
+
 
 #### HRAT
 
-1. Example of execution:
+To simplify understanding, I’ve also included an example demonstrating how to attack an MLP with the degree feature
+
+
 
