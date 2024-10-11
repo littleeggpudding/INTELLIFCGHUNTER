@@ -1,20 +1,15 @@
 import sys
 import os
 import time
-
 sys.path.append(os.path.abspath('../'))
-
-
 from Other.ExtractFeature import obtain_sensitive_apis, extract_degree_centrality_from_CG, \
-    extract_katz_centrality_from_CG, extract_katz_centrality_from_CG_new_pytorch, extract_harmonic_centrality_from_CG, extract_closeness_centrality_from_CG, extract_closeness_harmonic_centrality_from_CG, extract_harmonic_centrality_from_CG_new, extract_closeness_centrality_from_CG_new
+    extract_katz_centrality_from_CG, extract_closeness_centrality_from_CG, extract_harmonic_centrality_from_CG_new, extract_closeness_centrality_from_CG_new
 import os
 import networkx as nx
 import random
 from Mutation import Mutation
 from collections import deque
 import xml.etree.ElementTree as ET
-import torch
-import numpy as np
 
 
 class FCG_malscan:

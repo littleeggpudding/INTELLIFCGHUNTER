@@ -3,7 +3,6 @@ import os
 import time
 import random
 import networkx as nx
-import torch
 import numpy as np
 from collections import deque
 from xml.etree import ElementTree as ET
@@ -42,41 +41,60 @@ class FCG_apigraph:
         self._init_call_graph()
 
     def _init_call_graph(self):
-        """Initialize the call graph and set up nodes, edges, and features."""
         self.original_call_graph.copy()
 
-        # Initialize nodes
-        nodes = list(self.original_call_graph.nodes)
-        node_to_id = {node: idx for idx, node in enumerate(nodes)}
-        self.nodes, self.system_nodes, self.user_defined_nodes, self.self_defined_nodes, self.obfuscated_nodes = set(), set(), set(), set(), set()
-
+        nodes = list(self.original_call_graph.nodes._nodes.keys())
+        nodes_ids = set()
+        user_defined_nodes = set()
+        system_nodes = set()
+        self_defined_nodes = set()
+        obfuscated_nodes = set()
         families = list(self.apigraph_feature_dict.keys())
-        for i, node in enumerate(nodes):
-            node_id = node_to_id[node]
-            self.nodes.add(node_id)
 
-            current_family = self.smail_to_abstract(node, families)
+        for i in range(len(nodes)):
+            nodes_ids.add(i)
+            current_node = nodes[i]
+            current_family = self.smail_to_abstract(current_node, families)
+
             if current_family == self.dim:
-                self.user_defined_nodes.add(node_id)
-                self.self_defined_nodes.add(node_id)
+                user_defined_nodes.add(i)
+                self_defined_nodes.add(i)
             elif current_family == self.dim + 1:
-                self.user_defined_nodes.add(node_id)
-                self.obfuscated_nodes.add(node_id)
+                user_defined_nodes.add(i)
+                obfuscated_nodes.add(i)
             else:
-                self.system_nodes.add(node_id)
-            self.apigraph_feature_dict[current_family].add(node_id)
+                system_nodes.add(i)
 
-        # Initialize edges
-        self.edges = set()
-        for u, v in self.original_call_graph.edges:
-            u_id, v_id = node_to_id[u], node_to_id[v]
-            self.edges.add((u_id, v_id))
+            self.apigraph_feature_dict[current_family].add(i)
 
+        node_to_id = {node: idx for idx, node in enumerate(nodes)}
+
+        self.nodes = nodes_ids
+        self.system_nodes = system_nodes
+        self.user_defined_nodes = user_defined_nodes
+        self.self_defined_nodes = self_defined_nodes
+        self.obfuscated_nodes = obfuscated_nodes
+
+        edges = list(self.original_call_graph.edges)
+        edges_ids = set()
+
+        for edge in edges:
+            u, v = edge
+            u_id = node_to_id[u]
+            v_id = node_to_id[v]
+            edge_id = (u_id, v_id)
+            edges_ids.add(edge_id)
             u_family = self.smail_to_abstract(u, families)
             v_family = self.smail_to_abstract(v, families)
-            self.apigraph_matrix[u_family][v_family] += 1
 
+            u_family_id = u_family
+            v_family_id = v_family
+
+            self.apigraph_matrix[u_family_id][v_family_id] += 1
+
+        self.edges = edges_ids
         self.generate_new_call_graph()
+
 
     def normalizing_matrix(self):
         row_sums = self.apigraph_matrix.sum(axis=1)
@@ -86,6 +104,37 @@ class FCG_apigraph:
         normalized_matrix = np.nan_to_num(normalized_matrix)
 
         return normalized_matrix
+    
+    def init_sensitive_upstream(self):
+
+        sensitive_edges = set()
+        sensitive_system_nodes = set()
+        sensitive_user_defined_nodes = set()
+        sensitive_nodes = set()
+
+        for i in range(len(self.system_nodes)):
+            node = self.system_nodes[i]
+            queue = deque()
+            queue.append(node)
+            sensitive_system_nodes.add(node)
+            sensitive_nodes.add(node)
+
+            while queue:
+                current_node = queue.popleft()
+                for neighbor in self.current_call_graph.predecessors(current_node):
+                    if neighbor not in sensitive_nodes:
+                        sensitive_nodes.add(neighbor)
+                        queue.append(neighbor)
+                        if neighbor in self.system_nodes:
+                            sensitive_system_nodes.add(neighbor)
+                        else:
+                            sensitive_user_defined_nodes.add(neighbor)
+
+                    sensitive_edges.add((neighbor, current_node))
+
+        self.sensitive_edges = sensitive_edges
+        self.sensitive_user_defined_nodes = sensitive_user_defined_nodes
+        self.sensitive_system_nodes = sensitive_system_nodes
 
     def smail_to_package(self, func_sin, package_list):
         """Map a function signature to its package."""
@@ -104,7 +153,7 @@ class FCG_apigraph:
             return "obfuscated"
         return "self-defined"
 
-    def smail_to_abstract(self, func_sin):
+    def smail_to_abstract(self, func_sin, abstract_list):
         dim = self.dim
         apigraph_map_file = "entity_class{}.txt".format(dim)
         package_class = {}
@@ -299,7 +348,7 @@ class FCG_apigraph:
 
                 for add_edge in add_edges:
                     self.edges.add(tuple(add_edge))
-                    self.sensitive_edges.add(tuple(add_edge))
+                    self.sensitive_edges.add(add_edge)
 
                 return state, res
 
@@ -539,63 +588,6 @@ class FCG_apigraph:
         return None
 
     def build_mutation_add_edge_sensitive(self):
-        # print("add edge")
-        # user -> system
-        mutation = Mutation(self.apk_name)
-        visited = set()
-
-        # cannot_user_defined_nodes = set()
-        # cannot_system_nodes = set()
-        #
-        # for edge in self.boundary_edges:
-        #     cannot_user_defined_nodes.add(edge[0])
-        #     cannot_system_nodes.add(edge[1])
-        #
-        # can_user_defined_nodes = set(self.user_defined_nodes) - cannot_user_defined_nodes
-        # can_system_nodes = set(self.system_nodes) - cannot_system_nodes
-
-        # print("boundary edges", len(self.boundary_edges))
-
-        # user_defined_nodes = list(self.user_defined_nodes)
-        user_defined_nodes = list(self.sensitive_user_defined_nodes)
-        # 末尾在就可以
-        nodes = list(self.sensitive_user_defined_nodes.union(self.sensitive_system_nodes))
-        node1_len = len(user_defined_nodes)
-        node2_len = len(nodes)
-
-        if node1_len == 0 or node2_len == 0:
-            return None
-
-        try_time = 100
-        while node1_len > 0 and node2_len > 0 and try_time > 0:
-            # node1 = random.choice(list(can_user_defined_nodes))
-            # node2 = random.choice(list(can_system_nodes))
-
-            node1_idx = random.randint(0, node1_len - 1)
-            node2_idx = random.randint(0, node2_len - 1)
-            node1 = user_defined_nodes[node1_idx]
-            node2 = nodes[node2_idx]
-
-            if (node1, node2) not in visited and (node1, node2) not in self.edges:
-                # print("add edge:", node1, node2)
-
-                # clear mutation
-                # mutation.clear_mutation()
-                mutation.mutation['add_edges'].append((node1, node2))  # 存储的时候是list，在fcg也更新了nodes和edges
-                mutation.mutation['feature_type'] = 'add_edge'
-                # mutation.save_log()
-                visited.add((node1, node2))
-                # print("add edge finished!!!!")
-                return mutation
-
-            if len(visited) == len(self.user_defined_nodes) * len(self.nodes):
-                return None
-
-            try_time = try_time - 1
-
-        return None  # 如果没有添加任何边，返回-1
-
-    def build_mutation_add_edge_sensitive(self):
         mutation = Mutation(self.apk_name)
         visited = set()
 
@@ -632,22 +624,6 @@ class FCG_apigraph:
         callees = [m for n, m in self.edges if n == node]
         return callers, callees
 
-    def check_downstream(self, node):
-        # Find all downstream nodes of the given node
-        downstream = set()
-        queue = deque()
-        queue.append(node)
-
-        while queue:
-            current_node = queue.popleft()
-            for neighbor in self.current_call_graph.neighbors(current_node):
-                if neighbor not in downstream:
-                    downstream.add(neighbor)
-                    queue.append(neighbor)
-
-        # Check which of the found downstream nodes are sensitive
-        sensitive_downstream = downstream.intersection(set(self._apis))
-        return sensitive_downstream
 
     def build_mutation_rewiring(self):
         """
